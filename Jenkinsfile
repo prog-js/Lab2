@@ -41,9 +41,7 @@ pipeline {
 
     post {
         always {
-            script {
-                bat "docker rmi 4ddocker/lab1:${env.BUILD_NUMBER} 4ddocker/lab1:latest || true"
-            }
+            bat "docker rmi 4ddocker/lab1:${env.BUILD_NUMBER} 4ddocker/lab1:latest || true"
         }
         success {
             echo '🎉 Pipeline успешно выполнен!'
