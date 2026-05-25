@@ -42,7 +42,6 @@ pipeline {
     post {
         always {
             script {
-                // Используем прямые имена, а не переменные в bat
                 bat "docker rmi 4ddocker/lab1:${env.BUILD_NUMBER} 4ddocker/lab1:latest || true"
             }
         }
