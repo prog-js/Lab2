@@ -174,3 +174,5 @@ Thumbs.db
 
 # Docker
 *.tar
+
+vscode/
