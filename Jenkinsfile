@@ -30,7 +30,7 @@ pipeline {
                 bat """
                     docker run -d --name test-container-${env.BUILD_NUMBER} -p 8888:8000 ${IMAGE_NAME}
                     timeout /t 10 /nobreak > nul
-                    curl -f http://localhost:8888/health
+                    curl.exe -f http://localhost:8888/health
                     docker stop test-container-${env.BUILD_NUMBER}
                     docker rm test-container-${env.BUILD_NUMBER}
                 """
