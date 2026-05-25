@@ -4,6 +4,7 @@ pipeline {
     environment {
         IMAGE_NAME = "4ddocker/lab1:${env.BUILD_NUMBER}"
         IMAGE_LATEST = "4ddocker/lab1:latest"
+        LOCAL_DATA_PATH = "C:\\DopEdu\\ML_ITMO\\DevOpsLab\\Lab1"
     }
 
     stages {
@@ -12,6 +13,27 @@ pipeline {
                 echo '📦 Клонирование репозитория из GitHub...'
                 checkout scm
                 echo '✅ Код успешно получен'
+            }
+        }
+
+        stage('Copy Large Files') {
+            steps {
+                echo '📁 Копирование больших файлов (данные и модель) из локальной папки...'
+                bat """
+                    if not exist "data" mkdir data
+                    if exist "${LOCAL_DATA_PATH}\\data\\data_graduates_university_specialty_124_v20250709.csv" (
+                        copy "${LOCAL_DATA_PATH}\\data\\data_graduates_university_specialty_124_v20250709.csv" data\\
+                    ) else (
+                        echo "CSV file not found, skipping"
+                    )
+                    if not exist "models" mkdir models
+                    if exist "${LOCAL_DATA_PATH}\\models\\*.pkl" (
+                        copy "${LOCAL_DATA_PATH}\\models\\*.pkl" models\\
+                    ) else (
+                        echo "Model files not found, skipping"
+                    )
+                """
+                echo '✅ Большие файлы скопированы'
             }
         }
 
@@ -41,7 +63,7 @@ pipeline {
 
     post {
         always {
-            bat "docker rmi 4ddocker/lab1:${env.BUILD_NUMBER} 4ddocker/lab1:latest || true"
+            bat "docker rmi ${IMAGE_NAME} ${IMAGE_LATEST} || true"
         }
         success {
             echo '🎉 Pipeline успешно выполнен!'
