@@ -4,7 +4,6 @@ pipeline {
     environment {
         IMAGE_NAME = "4ddocker/lab1:${env.BUILD_NUMBER}"
         IMAGE_LATEST = "4ddocker/lab1:latest"
-        LOCAL_DATA_PATH = "C:\\DopEdu\\ML_ITMO\\DevOpsLab\\Lab1"
     }
 
     stages {
@@ -13,19 +12,6 @@ pipeline {
                 echo '📦 Клонирование репозитория из GitHub...'
                 checkout scm
                 echo '✅ Код успешно получен'
-            }
-        }
-
-        stage('Copy Large Files') {
-            steps {
-                echo '📁 Копирование больших файлов (данные и модель) из локальной папки...'
-                bat """
-                    if not exist "data" mkdir data
-                    xcopy /E /I /Y "${LOCAL_DATA_PATH}\\data\\*" "data\\"
-                    if not exist "models" mkdir models
-                    xcopy /E /I /Y "${LOCAL_DATA_PATH}\\models\\*" "models\\"
-                """
-                echo '✅ Большие файлы скопированы'
             }
         }
 
@@ -42,11 +28,11 @@ pipeline {
             steps {
                 echo '🧪 Запуск тестового контейнера...'
                 bat """
-                    docker run -d --name test-container-${BUILD_NUMBER} -p 8888:8000 ${IMAGE_NAME}
+                    docker run -d --name test-container-${env.BUILD_NUMBER} -p 8888:8000 ${IMAGE_NAME}
                     timeout /t 10 /nobreak > nul
-                    curl -f http://localhost:8888/health || exit 1
-                    docker stop test-container-${BUILD_NUMBER}
-                    docker rm test-container-${BUILD_NUMBER}
+                    curl -f http://localhost:8888/health
+                    docker stop test-container-${env.BUILD_NUMBER}
+                    docker rm test-container-${env.BUILD_NUMBER}
                 """
                 echo '✅ Контейнер успешно протестирован'
             }
@@ -56,7 +42,8 @@ pipeline {
     post {
         always {
             script {
-                bat "docker rmi ${IMAGE_NAME} ${IMAGE_LATEST} || true"
+                // Используем прямые имена, а не переменные в bat
+                bat "docker rmi 4ddocker/lab1:${env.BUILD_NUMBER} 4ddocker/lab1:latest || true"
             }
         }
         success {

@@ -13,8 +13,7 @@ class GraduateAnalytics:
     - прогноз роста зарплаты (история + прогноз)
     - топ регионов для вуза+направления (с разбивкой по годам)
     """
-    data_path = os.path.join('data', 'data_graduates_university_124_v20250709_csv', 
-                             'data_graduates_university_specialty_124_v20250709.csv')
+    data_path = os.path.join('data', 'data_graduates_university_specialty_124_v20250709.csv')
     def __init__(self, data_path=data_path):
         self.df = pd.read_csv(data_path, low_memory=False, sep=';')
         self.salary_col = 'average_salary_norm_med'
