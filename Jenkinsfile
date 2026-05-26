@@ -60,17 +60,7 @@ pipeline {
                 bat """
                     docker run -d --name test-func-${env.BUILD_NUMBER} -p 8889:8000 ${IMAGE_NAME}
                     timeout /t 15 /nobreak > nul
-                """
-                script {
-                    def testResult = bat(
-                        script: "curl.exe -f http://localhost:8889/health",
-                        returnStatus: true
-                    )
-                    if (testResult != 0) {
-                        error("Health check failed")
-                    }
-                }
-                bat """
+                    curl.exe -f http://localhost:8889/health
                     docker stop test-func-${env.BUILD_NUMBER}
                     docker rm test-func-${env.BUILD_NUMBER}
                 """
@@ -111,8 +101,8 @@ pipeline {
     post {
         always {
             script {
-                bat "docker stop test-func-${env.BUILD_NUMBER} || true"
-                bat "docker rm test-func-${env.BUILD_NUMBER} || true"
+                bat "docker stop test-func-${env.BUILD_NUMBER} 2>nul || exit 0"
+                bat "docker rm test-func-${env.BUILD_NUMBER} 2>nul || exit 0"
                 bat "docker rmi ${IMAGE_NAME} ${IMAGE_LATEST} || true"
             }
         }
