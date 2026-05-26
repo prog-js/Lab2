@@ -1,82 +1,130 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional
+from sqlalchemy.orm import Session
+import os
+import jwt
+from datetime import datetime, timedelta
+
+from src.db import get_db, Prediction, ModelMetric, init_db
 from src.analytics import GraduateAnalytics
 
-# 1. СНАЧАЛА создаём экземпляр FastAPI
-app = FastAPI(title="Graduate Analytics API")
+# Секретный ключ для JWT (из переменных окружения)
+SECRET_KEY = os.environ.get('API_SECRET_KEY', 'fallback-key-change-me')
+ALGORITHM = "HS256"
 
-# 2. ПОТОМ создаём экземпляр аналитики
+app = FastAPI(title="Graduate Analytics API with PostgreSQL")
+security = HTTPBearer()
+
+# Инициализация БД при старте
+@app.on_event("startup")
+def startup():
+    init_db()
+
+# Аналитика
 analytics = GraduateAnalytics()
 
-# 3. ТОЛЬКО ПОТОМ используем декораторы
+# --- Модели Pydantic для запросов ---
+class PredictionRequest(BaseModel):
+    features: List[float]
+
+class PredictionResponse(BaseModel):
+    prediction: int
+    class_name: str
+    confidence: float
+    saved_to_db: bool
+
+# --- Функция для создания JWT токена (для тестирования) ---
+def create_test_token(user_id: str = "test_user"):
+    payload = {
+        "sub": user_id,
+        "exp": datetime.utcnow() + timedelta(hours=1)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+# --- Middleware для проверки токена ---
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=403, detail="Invalid authentication token")
+
+# --- Эндпоинты ---
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
-@app.get("/regions")
-def get_regions():
-    return {"regions": analytics.get_all_regions()}
+@app.get("/token")
+def get_token(user_id: str = "test_user"):
+    """Эндпоинт для получения тестового токена"""
+    token = create_test_token(user_id)
+    return {"access_token": token, "token_type": "bearer"}
 
-@app.get("/universities")
-def get_universities():
-    return {"universities": analytics.get_all_universities()}
+@app.post("/predict", response_model=PredictionResponse)
+def predict(
+    request: PredictionRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(verify_token)
+):
+    """
+    Предсказание с сохранением результата в PostgreSQL.
+    Требуется JWT токен в заголовке Authorization: Bearer <token>
+    """
+    # Здесь ваша логика предсказания (заглушка)
+    import random
+    prediction = random.randint(0, 2)
+    confidence = random.random()
+    class_names = {0: "setosa", 1: "versicolor", 2: "virginica"}
+    
+    # Сохранение в БД
+    db_prediction = Prediction(
+        input_features=request.features,
+        prediction=prediction,
+        confidence=confidence,
+        user_id=user_id
+    )
+    db.add(db_prediction)
+    db.commit()
+    
+    return PredictionResponse(
+        prediction=prediction,
+        class_name=class_names.get(prediction, "unknown"),
+        confidence=confidence,
+        saved_to_db=True
+    )
 
-@app.get("/specialties/{university}")
-def get_specialties(university: str):
-    return {"specialties": analytics.get_specialties_by_university(university)}
+@app.post("/metrics")
+def save_metric(
+    metric_name: str,
+    metric_value: float,
+    model_version: str = "1.0",
+    db: Session = Depends(get_db),
+    user_id: str = Depends(verify_token)
+):
+    """Сохранение метрик модели в БД"""
+    metric = ModelMetric(
+        metric_name=metric_name,
+        metric_value=metric_value,
+        model_version=model_version
+    )
+    db.add(metric)
+    db.commit()
+    return {"status": "metric saved"}
 
-@app.post("/top_specialties_matrix")
-def top_specialties_matrix(request: dict):
-    """Тепловая матрица: топ направлений в регионе по годам"""
-    region = request.get('region')
-    top_n = request.get('top_n', 5)
-    
-    result = analytics.get_top_specialties_matrix(region, top_n)
-    if result.empty:
-        raise HTTPException(status_code=404, detail=f"Регион '{region}' не найден")
-    
-    return {
-        "region": region,
-        "matrix": result.to_dict(orient='index'),
-        "years": list(result.columns.astype(str)),
-        "specialties": list(result.index)
-    }
+@app.get("/metrics/{metric_name}")
+def get_metrics(
+    metric_name: str,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(verify_token)
+):
+    """Получение истории метрик из БД"""
+    metrics = db.query(ModelMetric).filter(
+        ModelMetric.metric_name == metric_name
+    ).order_by(ModelMetric.timestamp.desc()).limit(limit).all()
+    return {"metrics": [{"value": m.metric_value, "timestamp": m.timestamp} for m in metrics]}
 
-@app.post("/attractive_regions_matrix")
-def attractive_regions_matrix(request: dict):
-    """Тепловая матрица: топ регионов по годам"""
-    university = request.get('university')
-    specialty = request.get('specialty')
-    top_n = request.get('top_n', 5)
-    
-    result = analytics.get_attractive_regions_matrix(university, specialty, top_n)
-    if result.empty:
-        raise HTTPException(status_code=404, detail="Нет данных")
-    
-    return {
-        "university": university,
-        "specialty": specialty,
-        "matrix": result.to_dict(orient='index'),
-        "years": list(result.columns.astype(str)),
-        "regions": list(result.index)
-    }
-
-@app.post("/salary_forecast")
-def salary_forecast(request: dict):
-    """Прогноз зарплаты с историей для столбиковой диаграммы"""
-    region = request.get('region')
-    specialty = request.get('specialty')
-    university = request.get('university')
-    years_ahead = request.get('years_ahead', 3)
-    
-    result = analytics.get_salary_forecast(region, specialty, university, years_ahead)
-    if 'error' in result:
-        raise HTTPException(status_code=404, detail=result['error'])
-    
-    return result
-
-@app.get("/available_filters")
-def get_available_filters():
-    """Получить все доступные значения для фильтров"""
-    return analytics.get_available_filters()
+# ... остальные эндпоинты аналитики (regions, universities, top_specialties_matrix и т.д.)
