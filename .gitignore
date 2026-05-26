@@ -176,3 +176,5 @@ Thumbs.db
 *.tar
 
 vscode/
+
+.env
