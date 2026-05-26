@@ -1,9 +1,22 @@
 pipeline {
     agent any
 
+    parameters {
+        choice(
+            name: 'DEPLOY_ACTION',
+            choices: ['none', 'deploy', 'test_only'],
+            description: 'Действие: deploy - развернуть контейнер, test_only - только тесты'
+        )
+        string(
+            name: 'SCENARIO_FILE',
+            defaultValue: 'scenario.json',
+            description: 'Файл со сценарием функционального тестирования'
+        )
+    }
+
     environment {
-        IMAGE_NAME = "4ddocker/lab1:${env.BUILD_NUMBER}"
-        IMAGE_LATEST = "4ddocker/lab1:latest"
+        IMAGE_NAME = "4ddocker/lab2:${env.BUILD_NUMBER}"
+        IMAGE_LATEST = "4ddocker/lab2:latest"
         LOCAL_DATA_PATH = "C:\\DopEdu\\ML_ITMO\\DevOpsLab\\Lab2"
     }
 
@@ -18,20 +31,12 @@ pipeline {
 
         stage('Copy Large Files') {
             steps {
-                echo '📁 Копирование больших файлов (данные и модель) из локальной папки...'
+                echo '📁 Копирование больших файлов...'
                 bat """
                     if not exist "data" mkdir data
-                    if exist "${LOCAL_DATA_PATH}\\data\\data_graduates_university_specialty_124_v20250709.csv" (
-                        copy "${LOCAL_DATA_PATH}\\data\\data_graduates_university_specialty_124_v20250709.csv" data\\
-                    ) else (
-                        echo "CSV file not found, skipping"
-                    )
+                    if exist "${LOCAL_DATA_PATH}\\data\\*.csv" copy "${LOCAL_DATA_PATH}\\data\\*.csv" data\\
                     if not exist "models" mkdir models
-                    if exist "${LOCAL_DATA_PATH}\\models\\*.pkl" (
-                        copy "${LOCAL_DATA_PATH}\\models\\*.pkl" models\\
-                    ) else (
-                        echo "Model files not found, skipping"
-                    )
+                    if exist "${LOCAL_DATA_PATH}\\models\\*.pkl" copy "${LOCAL_DATA_PATH}\\models\\*.pkl" models\\
                 """
                 echo '✅ Большие файлы скопированы'
             }
@@ -46,17 +51,62 @@ pipeline {
             }
         }
 
-        stage('Test Container') {
+        stage('Functional Tests') {
+            when {
+                expression { params.DEPLOY_ACTION == 'test_only' || params.DEPLOY_ACTION == 'deploy' }
+            }
             steps {
-                echo '🧪 Запуск тестового контейнера...'
+                echo '🧪 Функциональное тестирование по сценарию...'
+                script {
+                    // Копируем scenario.json из репозитория
+                    bat """
+                        docker run -d --name test-func-${env.BUILD_NUMBER} -p 8889:8000 ${IMAGE_NAME}
+                        timeout /t 15 /nobreak > nul
+                    """
+                    // Запуск тестов по сценарию
+                    def testResult = bat(
+                        script: """
+                            python scripts/functional_test.py --url http://localhost:8889 --scenario ${params.SCENARIO_FILE}
+                        """,
+                        returnStatus: true
+                    )
+                    bat "docker stop test-func-${env.BUILD_NUMBER}"
+                    bat "docker rm test-func-${env.BUILD_NUMBER}"
+                    
+                    if (testResult != 0) {
+                        error("Функциональные тесты не пройдены")
+                    }
+                }
+                echo '✅ Функциональные тесты пройдены'
+            }
+        }
+
+        stage('Deploy Container') {
+            when {
+                expression { params.DEPLOY_ACTION == 'deploy' }
+            }
+            steps {
+                echo '🚀 Развертывание контейнера в продакшн...'
                 bat """
-                    docker run -d --name test-container-${env.BUILD_NUMBER} -p 8888:8000 ${IMAGE_NAME}
-                    timeout /t 10 /nobreak > nul
-                    curl.exe -f http://localhost:8888/health
-                    docker stop test-container-${env.BUILD_NUMBER}
-                    docker rm test-container-${env.BUILD_NUMBER}
+                    docker stop graduate-analytics-prod || true
+                    docker rm graduate-analytics-prod || true
+                    docker run -d --name graduate-analytics-prod -p 8000:8000 --restart unless-stopped ${IMAGE_LATEST}
                 """
-                echo '✅ Контейнер успешно протестирован'
+                echo '✅ Контейнер развернут'
+            }
+        }
+
+        stage('Health Check') {
+            when {
+                expression { params.DEPLOY_ACTION == 'deploy' }
+            }
+            steps {
+                echo '🏥 Проверка здоровья развернутого контейнера...'
+                bat """
+                    timeout /t 10 /nobreak > nul
+                    curl.exe -f http://localhost:8000/health
+                """
+                echo '✅ Health check пройден'
             }
         }
     }
