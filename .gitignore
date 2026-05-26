@@ -177,4 +177,19 @@ Thumbs.db
 
 vscode/
 
+
+# Секреты
 .env
+*.pem
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Миграции Alembic (если не хотите хранить)
+# alembic/versions/*.py
+
+# Python
+__pycache__/
+*.pyc
